@@ -186,6 +186,53 @@ static int __net_init netfilter_net_init""")
 
 #if defined(CONFIG_NET_SCHED) || defined(CONFIG_NET_XGRESS)
 	__u16			tc_index;""")
+    replace(socket_buffer, "#if IS_ENABLED(CONFIG_BRIDGE_NETFILTER)\n\tSKB_EXT_BRIDGE_NF,\n#endif\n", "")
+    replace(socket_buffer, "\tSKB_EXT_NUM, /* must be last */", """	SKB_EXT_NUM,
+#if IS_ENABLED(CONFIG_BRIDGE_NETFILTER) && !defined(__GENKSYMS__)
+	SKB_EXT_BRIDGE_NF = SKB_EXT_NUM,
+#endif""")
+    replace(socket_buffer, "\tu8 chunks;\t\t/* same */", """	u8 chunks;
+#if IS_ENABLED(CONFIG_BRIDGE_NETFILTER) && !defined(__GENKSYMS__)
+	u8 bridge_offset;
+#endif""")
+    replace(socket_buffer, "struct skb_ext *__skb_ext_alloc(gfp_t flags);", """static inline const u8 *skb_ext_offset_const(const struct skb_ext *ext,
+					 enum skb_ext_id id)
+{
+#if IS_ENABLED(CONFIG_BRIDGE_NETFILTER)
+	if (id == SKB_EXT_BRIDGE_NF)
+		return &ext->bridge_offset;
+#endif
+	return &ext->offset[id];
+}
+
+static inline u8 *skb_ext_offset(struct skb_ext *ext, enum skb_ext_id id)
+{
+	return (u8 *)skb_ext_offset_const(ext, id);
+}
+
+struct skb_ext *__skb_ext_alloc(gfp_t flags);""")
+    replace(socket_buffer, "return !!ext->offset[i];", "return !!*skb_ext_offset_const(ext, i);")
+    replace(socket_buffer, "(ext->offset[id] << 3)", "(*skb_ext_offset_const(ext, id) << 3)")
+    skb_core = kernel / "net/core/skbuff.c"
+    replace(skb_core, "(ext->offset[id] * SKB_EXT_ALIGN_VALUE)",
+            "(*skb_ext_offset_const(ext, id) * SKB_EXT_ALIGN_VALUE)")
+    replace(skb_core, "ext->offset[id] = newoff;", "*skb_ext_offset(ext, id) = newoff;")
+    replace(skb_core, "new->offset[id] = newoff;", "*skb_ext_offset(new, id) = newoff;")
+    replace(skb_core, "memset(new->offset, 0, sizeof(new->offset));", """memset(new->offset, 0, sizeof(new->offset));
+#if IS_ENABLED(CONFIG_BRIDGE_NETFILTER)
+		new->bridge_offset = 0;
+#endif""")
+    replace(skb_core, "BUILD_BUG_ON(SKB_EXT_NUM >= 8);", "BUILD_BUG_ON(ARRAY_SIZE(skb_ext_type_len) >= 8);")
+
+    ipv4 = kernel / "include/net/netns/ipv4.h"
+    for protocol in ("raw", "tcp", "udp"):
+        replace(ipv4, f"#ifdef CONFIG_NET_L3_MASTER_DEV\n\tu8 sysctl_{protocol}_l3mdev_accept;\n#endif\n", "")
+    replace(ipv4, "\tu8 sysctl_icmp_errors_use_inbound_ifaddr;", """	u8 sysctl_icmp_errors_use_inbound_ifaddr;
+#if defined(CONFIG_NET_L3_MASTER_DEV) && !defined(__GENKSYMS__)
+	u8 sysctl_raw_l3mdev_accept;
+	u8 sysctl_tcp_l3mdev_accept;
+	u8 sysctl_udp_l3mdev_accept;
+#endif""")
 
     netdevice = kernel / "include/linux/netdevice.h"
     replace(netdevice, "#ifdef CONFIG_NET_L3_MASTER_DEV\n"

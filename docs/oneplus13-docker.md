@@ -28,11 +28,12 @@
 - IPVS 默认会插入 `sk_buff` 位域中部，改变后续网络标记；迁至本机位域末端的空闲位，保留既有位偏移和符号版本视图。
 - IPVLAN_L3S 会隐式开启 NET_L3_MASTER_DEV，在 `net_device` 中间插入指针；迁至本机发送缓存行之前的对齐空隙，不占用厂商保留槽，并保持原有符号版本视图。
 - NET_CLASSID 的 `sock_cgroup_data.classid` 迁至本机 `prioidx` 之后的对齐空隙，避免改变已有网络优先级字段和符号 CRC。
+- 保留 `skb_ext` 原有扩展编号、offset 数组和 chunks 偏移；桥接扩展编号追加，索引单独放入原有对齐空隙。`netns_ipv4` 的三个 L3 master sysctl 标志也迁入原有对齐空隙。这些嵌套类型会影响模块 CRC，即便外层结构大小未变化，也必须处理。
 - conntrack zone 放入 `nf_conn` 的 KABI 2 保留空间。
 
 CFS/PIDS 的基础补丁固定为 UlasuNoka/curio-kernel-patches 提交 `9641ce0540cac0017d5373018e1352183df56827` 的 `common/droidspaces/cgroup_limits/fix_cgroup_limits_kabi_6.6.89.patch`，下载后校验 SHA-256，再严格适配本项目固定的 6.6.118 源码。SYSVIPC 的布局方案沿用本仓库已有 `droidspaces_patch/fix_sysvipc_kabi_6_7_8.patch`，适配 6.6.118 的上下文。上述源码修改由 `scripts/prepare-op13-docker.py` 执行；上下文或校验和不符立即失败，不使用 `patch || true`。
 
-编译后验证 fragment 中每个选项真正保留为内建 `y`；随后对比实机 28 个关键结构的大小、原字段偏移/位域宽度及既有 cgroup ID，并严格核验 stock 模块需要的内核符号 CRC 是否与新内核导出表一致。保留 CONFIG_MODVERSIONS、SELinux、厂商 hook 和原有调度配置。不改为 permissive，不关闭模块版本检查，也不依赖强制加载厂商模块。
+编译后验证 fragment 中每个选项真正保留为内建 `y`；随后对比实机 30 个关键结构的大小、原字段偏移/位域宽度及既有 cgroup ID，并严格核验 stock 模块需要的内核符号 CRC 是否与新内核导出表一致。保留 CONFIG_MODVERSIONS、SELinux、厂商 hook 和原有调度配置。不改为 permissive，不关闭模块版本检查，也不依赖强制加载厂商模块。
 
 这不是完整的 KMI 形式证明：检查没有穷举所有类型、未采集模块的符号 CRC、厂商对保留槽的非标准使用或运行时行为。它降低已知布局风险，不能替代实机开机和 Docker 功能测试。
 

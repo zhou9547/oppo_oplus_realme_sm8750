@@ -196,7 +196,7 @@ jobs:
           cat >> "$GITHUB_STEP_SUMMARY" <<'EOF'
           ## 一加 13 原生 Docker 内核
           - 仅面向实机 PJZ110 / OP5D0DL1，固件 PJZ110_16.0.10.501(CN01)，6.6.118。
-          - 保留 MODVERSIONS；核验 28 个内核结构的大小、字段偏移和原有 cgroup ID。
+          - 保留 MODVERSIONS；核验 30 个内核结构的大小、字段偏移和原有 cgroup ID。
           - 同时核验本机 stock 模块导入的内核符号 CRC；不匹配即停止打包。
           - 启用 namespaces、cgroup v1/v2、CPU/PID/设备限制、overlayfs、bridge/NAT、IPv6、nftables/IPVS。
           - 未加入 SUSFS/KPM/风驰/第三方 IO/压缩补丁；不自动刷入手机。

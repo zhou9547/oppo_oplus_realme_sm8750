@@ -9,7 +9,7 @@ STRUCTURES = (
     "css_set", "cgroup", "cgroup_root", "cgroup_subsys_state", "cred", "nsproxy",
     "net", "netns_nf", "netns_ct", "nf_conn", "sock", "sock_common", "net_device",
     "sk_buff", "inet_sock", "inet_connection_sock", "request_sock", "file", "inode",
-    "super_block", "user_struct", "sock_cgroup_data",
+    "super_block", "user_struct", "sock_cgroup_data", "netns_ipv4", "skb_ext",
 )
 
 
