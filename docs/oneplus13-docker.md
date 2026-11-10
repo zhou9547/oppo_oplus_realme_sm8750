@@ -11,7 +11,7 @@
 | 内核 | 6.6.118-android15-8-g93e223c276e7-abogki500782043-4k |
 | Root 管理器 | KernelSU 3.3.1 |
 
-`configs/oneplus13-stock.config` 来自 `/proc/config.gz`，`configs/oneplus13-stock-abi.json` 来自 `/sys/kernel/btf/vmlinux`。这些是编译选项和类型布局，不包含分区镜像、密钥或用户数据。系统显示 Android 16 而 GKI 内核名称保留 android15 是本机的实际情况。
+`configs/oneplus13-stock.config` 来自 `/proc/config.gz`，`configs/oneplus13-stock-abi.json` 来自 `/sys/kernel/btf/vmlinux`。`configs/oneplus13-stock-symbols.tsv` 从本机 554 个 stock 模块的 ELF 版本表提取 3612 个内核导入符号 CRC，并剔除模块之间提供的符号。这些是编译选项、类型布局和校验值，不包含模块代码、分区镜像、密钥或用户数据。系统显示 Android 16 而 GKI 内核名称保留 android15 是本机的实际情况。
 
 工作流为 `.github/workflows/oneplus13-docker.yml`，手动触发后产物位于 Actions 的 `OnePlus13-6.6.118-Docker-AnyKernel3` 工件内。下载工件后，刷入内部的 `AnyKernel3-*.zip`，不要刷 GitHub 外层的工件打包 ZIP。
 
@@ -29,9 +29,9 @@
 
 CFS/PIDS 的基础补丁固定为 UlasuNoka/curio-kernel-patches 提交 `9641ce0540cac0017d5373018e1352183df56827` 的 `common/droidspaces/cgroup_limits/fix_cgroup_limits_kabi_6.6.89.patch`，下载后校验 SHA-256，再严格适配本项目固定的 6.6.118 源码。SYSVIPC 的布局方案沿用本仓库已有 `droidspaces_patch/fix_sysvipc_kabi_6_7_8.patch`，适配 6.6.118 的上下文。上述源码修改由 `scripts/prepare-op13-docker.py` 执行；上下文或校验和不符立即失败，不使用 `patch || true`。
 
-编译后验证 fragment 中每个选项真正保留为内建 `y`；随后对比实机 27 个关键结构的大小、原字段偏移/位域宽度及既有 cgroup ID。保留 CONFIG_MODVERSIONS、SELinux、厂商 hook 和原有调度配置。不改为 permissive，不关闭模块版本检查，也不依赖强制加载厂商模块。
+编译后验证 fragment 中每个选项真正保留为内建 `y`；随后对比实机 27 个关键结构的大小、原字段偏移/位域宽度及既有 cgroup ID，并严格核验本机 stock 模块需要的 3612 个内核符号 CRC 是否与新内核导出表一致。保留 CONFIG_MODVERSIONS、SELinux、厂商 hook 和原有调度配置。不改为 permissive，不关闭模块版本检查，也不依赖强制加载厂商模块。
 
-这不是完整的 KMI 形式证明：检查没有穷举所有类型、符号 CRC、厂商对保留槽的非标准使用或运行时行为。它降低已知布局风险，不能替代实机开机和 Docker 功能测试。
+这不是完整的 KMI 形式证明：检查没有穷举所有类型、未采集模块的符号 CRC、厂商对保留槽的非标准使用或运行时行为。它降低已知布局风险，不能替代实机开机和 Docker 功能测试。
 
 ## 功能范围
 
