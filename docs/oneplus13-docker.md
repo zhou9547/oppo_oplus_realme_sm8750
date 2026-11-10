@@ -25,6 +25,7 @@
 - 增加 cgroup 控制器会改变既有 ID、`css_set`/`cgroup` 数组及后续字段；保留原 ID 和数组长度，新增 PIDS/DEVICE 状态放入私有分配尾部，静态初始对象使用单独存储。
 - CFS_BANDWIDTH 会扩展 `task_group`、`cfs_rq`、`rq`；使用独立带宽状态，不能占用已可能被厂商 schedtune 使用的保留槽。
 - bridge netfilter、nftables、IPVS 会扩展网络命名空间；改用 per-net 私有存储，保留既有 `net`/`netns_nf` 布局。
+- IPVS 默认会插入 `sk_buff` 位域中部，改变后续网络标记；迁至本机位域末端的空闲位，保留既有位偏移和符号版本视图。
 - conntrack zone 放入 `nf_conn` 的 KABI 2 保留空间。
 
 CFS/PIDS 的基础补丁固定为 UlasuNoka/curio-kernel-patches 提交 `9641ce0540cac0017d5373018e1352183df56827` 的 `common/droidspaces/cgroup_limits/fix_cgroup_limits_kabi_6.6.89.patch`，下载后校验 SHA-256，再严格适配本项目固定的 6.6.118 源码。SYSVIPC 的布局方案沿用本仓库已有 `droidspaces_patch/fix_sysvipc_kabi_6_7_8.patch`，适配 6.6.118 的上下文。上述源码修改由 `scripts/prepare-op13-docker.py` 执行；上下文或校验和不符立即失败，不使用 `patch || true`。

@@ -160,6 +160,16 @@ static int __net_init netfilter_net_init""")
     replace(ipvs_core, "\tnet->ipvs = ipvs;\n", "")
     replace(ipvs_core, "\tnet->ipvs = NULL;\n", "", 2)
 
+    socket_buffer = kernel / "include/linux/skbuff.h"
+    replace(socket_buffer, "#if IS_ENABLED(CONFIG_IP_VS)\n\t__u8\t\t\tipvs_property:1;\n#endif\n", "")
+    replace(socket_buffer, "#if defined(CONFIG_NET_SCHED) || defined(CONFIG_NET_XGRESS)\n"
+            "\t__u16\t\t\ttc_index;", """#if IS_ENABLED(CONFIG_IP_VS) && !defined(__GENKSYMS__)
+	__u8			ipvs_property:1;
+#endif
+
+#if defined(CONFIG_NET_SCHED) || defined(CONFIG_NET_XGRESS)
+	__u16			tc_index;""")
+
     conntrack = kernel / "include/net/netfilter/nf_conntrack.h"
     replace(conntrack, "#ifdef CONFIG_NF_CONNTRACK_ZONES\n\tstruct nf_conntrack_zone zone;\n#endif\n", "")
     replace(conntrack, "\tANDROID_KABI_RESERVE(2);", """#ifdef CONFIG_NF_CONNTRACK_ZONES
