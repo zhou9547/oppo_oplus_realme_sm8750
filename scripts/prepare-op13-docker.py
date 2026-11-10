@@ -129,7 +129,7 @@ static inline int NF_DROP_GETERR""")
         replace(path, "net->nf.hooks_bridge", "nf_bridge_hooks(net)", occurrences)
     nf_core = kernel / "net/netfilter/core.c"
     replace(nf_core, "#include <net/net_namespace.h>",
-            "#include <net/net_namespace.h>\n#include <net/netns/generic.h>")
+            "#include <net/net_namespace.h>\n#ifndef __GENKSYMS__\n#include <net/netns/generic.h>\n#endif")
     replace(nf_core, "static int __net_init netfilter_net_init", """#ifdef CONFIG_NETFILTER_FAMILY_BRIDGE
 static unsigned int nf_bridge_net_id;
 
@@ -146,6 +146,37 @@ static int __net_init netfilter_net_init""")
 	.id = &nf_bridge_net_id,
 	.size = sizeof(nf_bridge_hook_array),
 #endif""")
+
+    queue_header = kernel / "include/net/netfilter/nf_queue.h"
+    replace(queue_header, "#if IS_ENABLED(CONFIG_BRIDGE_NETFILTER)\n"
+            "\tstruct net_device\t*physin;\n\tstruct net_device\t*physout;\n#endif\n", "")
+    queue_core = kernel / "net/netfilter/nf_queue.c"
+    replace(queue_core, "static const struct nf_queue_handler __rcu *nf_queue_handler;", """#if IS_ENABLED(CONFIG_BRIDGE_NETFILTER)
+struct nf_queue_bridge_devices {
+	struct net_device *physin;
+	struct net_device *physout;
+};
+
+static struct nf_queue_bridge_devices *nf_queue_bridge(struct nf_queue_entry *entry)
+{
+	return (void *)entry + entry->size - sizeof(struct nf_queue_bridge_devices);
+}
+
+#define NF_QUEUE_ENTRY_SIZE(route_size) \\
+	(ALIGN(sizeof(struct nf_queue_entry) + (route_size), \\
+	       __alignof__(struct nf_queue_bridge_devices)) + \\
+	 sizeof(struct nf_queue_bridge_devices))
+#else
+#define NF_QUEUE_ENTRY_SIZE(route_size) (sizeof(struct nf_queue_entry) + (route_size))
+#endif
+
+static const struct nf_queue_handler __rcu *nf_queue_handler;""")
+    for field in ("physin", "physout"):
+        needle = "entry->" + field
+        replace(queue_core, needle, "nf_queue_bridge(entry)->" + field,
+                queue_core.read_text().count(needle))
+    replace(queue_core, "sizeof(*entry) + route_key_size",
+            "NF_QUEUE_ENTRY_SIZE(route_key_size)", 2)
 
     net_namespace = kernel / "include/net/net_namespace.h"
     replace(net_namespace, "#if defined(CONFIG_NF_TABLES) || defined(CONFIG_NF_TABLES_MODULE)\n"

@@ -759,6 +759,17 @@
     },
     "size": 272
   },
+  "nf_queue_entry": {
+    "members": {
+      "hook_index": "224:0",
+      "id": "192:0",
+      "list": "0:0",
+      "size": "640:0",
+      "skb": "128:0",
+      "state": "256:0"
+    },
+    "size": 88
+  },
   "nsproxy": {
     "members": {
       "cgroup_ns": "512:0",
