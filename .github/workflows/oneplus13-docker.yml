@@ -1,0 +1,175 @@
+name: OnePlus 13 6.6.118 Native Docker
+run-name: OnePlus 13 Docker · KernelSU=${{ inputs.kernelsu }}
+
+on:
+  workflow_dispatch:
+    inputs:
+      kernelsu:
+        description: '内置原版 KernelSU v3.3.1；关闭后需自行保留其他 root 方案'
+        type: boolean
+        required: true
+        default: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: oneplus13-docker-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  KERNEL_COMMIT: 2a4726b11594dd57d0779d2685fad5c81e5ed553
+  KSU_COMMIT: 0c0fdb960178fa12d80d6cbcfdcb6ad8be6a865d
+  AK3_COMMIT: 091ee586e1a5d5c1c1c957d48fe7c61638d04dc4
+  LIMITS_COMMIT: 9641ce0540cac0017d5373018e1352183df56827
+  KERNEL_RELEASE: 6.6.118-android15-8-g93e223c276e7-abogki500782043-4k
+  KBUILD_BUILD_TIMESTAMP: 'Wed Apr 8 15:08:30 UTC 2026'
+  KBUILD_BUILD_USER: android-build
+  KBUILD_BUILD_HOST: abfarm
+  CCACHE_DIR: /home/runner/.cache/ccache-op13-docker
+  CCACHE_MAXSIZE: 3G
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            bc bison flex build-essential libssl-dev libelf-dev libzstd-dev \
+            dwarves ccache curl unzip zip zstd rsync
+          mkdir -p artifacts toolchain
+
+      - name: Restore compiler cache
+        uses: actions/cache@v4
+        with:
+          path: ${{ env.CCACHE_DIR }}
+          key: op13-docker-v1-${{ runner.os }}-${{ inputs.kernelsu }}-${{ github.run_id }}
+          restore-keys: |
+            op13-docker-v1-${{ runner.os }}-${{ inputs.kernelsu }}-
+
+      - name: Fetch pinned kernel, patches and toolchain
+        run: |
+          curl -fL --retry 3 "https://github.com/cctv18/android_kernel_common_oneplus_sm8750/archive/$KERNEL_COMMIT.tar.gz" | tar -xz
+          mv "android_kernel_common_oneplus_sm8750-$KERNEL_COMMIT" kernel
+          curl -fL --retry 3 "https://raw.githubusercontent.com/UlasuNoka/curio-kernel-patches/$LIMITS_COMMIT/common/droidspaces/cgroup_limits/fix_cgroup_limits_kabi_6.6.89.patch" -o limits.patch
+          curl -fL --retry 3 "https://github.com/cctv18/oneplus_sm8650_toolchain/releases/download/LLVM-Clang18-r510928/clang-r510928.zip" -o clang.zip
+          echo '1221635c13d02c5f0c8abb93f38f5d43f5e2f86906ae2e18894ce63e90264164  clang.zip' | sha256sum -c -
+          unzip -q clang.zip -d toolchain
+          rm clang.zip
+          echo "$GITHUB_WORKSPACE/toolchain/bin" >> "$GITHUB_PATH"
+          git -C kernel init
+          git -C kernel add include kernel net
+          python3 scripts/prepare-op13-docker.py kernel limits.patch
+          if [[ '${{ inputs.kernelsu }}' == 'true' ]]; then
+            curl -fL --retry 3 "https://github.com/tiann/KernelSU/archive/$KSU_COMMIT.tar.gz" | tar -xz
+            mv "KernelSU-$KSU_COMMIT" KernelSU
+            ln -s ../../KernelSU/kernel kernel/drivers/kernelsu
+            printf '\nobj-$(CONFIG_KSU) += kernelsu/\n' >> kernel/drivers/Makefile
+            printf '\nsource "drivers/kernelsu/Kconfig"\n' >> kernel/drivers/Kconfig
+          fi
+          git -C kernel diff -- include kernel net > artifacts/kernel-source.patch
+
+      - name: Resolve and verify native Docker configuration
+        run: |
+          mkdir -p kernel/out
+          cp configs/oneplus13-stock.config kernel/out/.config
+          kernel/scripts/kconfig/merge_config.sh -m -O kernel/out kernel/out/.config configs/oneplus13-docker.fragment
+          kernel/scripts/config --file kernel/out/.config --set-str LOCALVERSION "-${KERNEL_RELEASE#6.6.118-}" -d LOCALVERSION_AUTO -d WERROR
+          if [[ '${{ inputs.kernelsu }}' == 'true' ]]; then
+            kernel/scripts/config --file kernel/out/.config -e KSU
+          fi
+          : > kernel/.scmversion
+          make -C kernel O=out ARCH=arm64 LLVM=1 LLVM_IAS=1 olddefconfig
+          python3 scripts/check-op13-docker.py config kernel/out/.config configs/oneplus13-docker.fragment
+          actual_release=$(make -s -C kernel O=out ARCH=arm64 LLVM=1 kernelrelease)
+          test "$actual_release" = "$KERNEL_RELEASE"
+          cp kernel/out/.config artifacts/docker.config
+
+      - name: Compile kernel
+        run: |
+          ccache --max-size "$CCACHE_MAXSIZE"
+          make -C kernel -j"$(nproc)" O=out ARCH=arm64 LLVM=1 LLVM_IAS=1 \
+            CC='ccache clang' Image 2>&1 | tee artifacts/build.log
+          test -s kernel/out/arch/arm64/boot/Image
+          ccache --show-stats
+
+      - name: Reject changed vendor-facing KMI layouts
+        run: |
+          llvm-objcopy --dump-section .BTF=artifacts/docker.btf kernel/out/vmlinux /dev/null
+          python3 scripts/check-op13-docker.py snapshot artifacts/docker.btf artifacts/docker-abi.json
+          python3 scripts/check-op13-docker.py abi configs/oneplus13-stock-abi.json artifacts/docker.btf | tee artifacts/abi-check.txt
+          for symbols in kernel/out/Module.symvers kernel/out/vmlinux.symvers; do
+            if [[ -f "$symbols" ]]; then cp "$symbols" artifacts/; fi
+          done
+          rm artifacts/docker.btf
+
+      - name: Package device-checked AnyKernel3
+        run: |
+          curl -fL --retry 3 "https://github.com/cctv18/AnyKernel3/archive/$AK3_COMMIT.tar.gz" | tar -xz
+          mv "AnyKernel3-$AK3_COMMIT" AnyKernel3
+          cp kernel/out/arch/arm64/boot/Image AnyKernel3/Image
+          python3 - <<'PY'
+          from pathlib import Path
+          path = Path('AnyKernel3/anykernel.sh')
+          text = path.read_text()
+          text = text.replace('do.devicecheck=0', 'do.devicecheck=1')
+          text = text.replace('device.name1=', 'device.name1=OP5D0DL1')
+          text = text.replace('device.name2=', 'device.name2=PJZ110')
+          anchor = 'split_boot\n'
+          if text.count(anchor) != 1:
+              raise SystemExit('Unexpected AnyKernel3 installer')
+          guard = '''case "$(uname -r)" in
+            6.6.118-*) ;;
+            *) abort "Wrong running kernel: this package requires 6.6.118" ;;
+          esac
+          [ "$(getprop ro.build.display.id)" = "PJZ110_16.0.10.501(CN01)" ] || abort "Firmware mismatch: expected PJZ110_16.0.10.501(CN01)"
+          '''
+          path.write_text(text.replace(anchor, guard + anchor))
+          PY
+          printf 'source=%s\nksu=%s\nlimits=%s\nrelease=%s\n' \
+            "$KERNEL_COMMIT" "$KSU_COMMIT" "$LIMITS_COMMIT" "$KERNEL_RELEASE" > artifacts/provenance.txt
+          cp artifacts/provenance.txt AnyKernel3/
+          cd AnyKernel3
+          zip -qr "../artifacts/AnyKernel3-OnePlus13-6.6.118-Docker-${{ github.run_number }}.zip" .
+          cd ../artifacts
+          sha256sum AnyKernel3-*.zip > SHA256SUMS
+
+      - name: Upload flashable kernel
+        uses: actions/upload-artifact@v4
+        with:
+          name: OnePlus13-6.6.118-Docker-AnyKernel3
+          path: |
+            artifacts/AnyKernel3-*.zip
+            artifacts/SHA256SUMS
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Upload build diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: OnePlus13-Docker-diagnostics
+          path: artifacts/
+          if-no-files-found: ignore
+          retention-days: 14
+
+      - name: Build summary
+        if: always()
+        run: |
+          cat >> "$GITHUB_STEP_SUMMARY" <<'EOF'
+          ## 一加 13 原生 Docker 内核
+          - 仅面向实机 PJZ110 / OP5D0DL1，固件 PJZ110_16.0.10.501(CN01)，6.6.118。
+          - 保留 MODVERSIONS；核验 27 个内核结构的大小、字段偏移和原有 cgroup ID。
+          - 启用 namespaces、cgroup v1/v2、CPU/PID/设备限制、overlayfs、bridge/NAT、IPv6、nftables/IPVS。
+          - 未加入 SUSFS/KPM/风驰/第三方 IO/压缩补丁；不自动刷入手机。
+          - ABI 检查不通过不会生成可刷 ZIP；检查通过也不等于已经通过实机启动测试。
+          - 刷前备份原 boot / init_boot，准备已验证可用的恢复方式；使用说明见 docs/oneplus13-docker.md。
+          EOF
