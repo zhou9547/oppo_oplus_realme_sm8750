@@ -74,6 +74,8 @@ python scripts/collect-op13-bootlogs.py --duration 1800 --output op13-debug-flas
 
 Debug 内核额外输出 `OP13-DIAG:` 标记，覆盖早期 cgroup、调度器初始化、pre-SMP/basic setup、每个 initcall 的函数名与返回值、转交用户态 init 的位置。最后一个 `begin` 后没有对应完成记录可作为排查线索，**不是单独定罪依据**，因为并发、重启或环形覆盖也会造成不完整日志。原有 panic/Oops、模块加载/签名错误继续保留。
 
+本机 vendor init 会将控制台级别设为 `4 6 1 7`，普通 notice/info 日志可能不进入 pstore 控制台。因此临时标记使用 `KERN_ERR`（级别 3），让它们在现有过滤设置下也能输出；**`OP13-DIAG` 的 error 级别仅用于保证采集，不表示标记对应步骤真的发生错误**。不改变手机全局 printk 级别，也不保证记录在所有后续日志量下都不会被覆盖。
+
 检索 `OP13-DIAG:`、`Kernel panic`、`Unable to handle`、`Call trace`、`Unknown symbol`、`disagrees about version`、`exports protected symbol`、`Required key not available`、`f2fs`、`fs_mgr` 和 `avc: denied`。日志可能含设备序列号、地址、应用活动、文件路径和其他私人信息；先离线筛选脱敏，仅提供相关片段，勿公开上传整套日志或启动分区备份。
 
 ## 正常开机后再移除临时日志

@@ -15,18 +15,18 @@ def prepare(kernel):
         original = f"\t{function}();"
         if text.count(original) != 1:
             raise ValueError(f"Unexpected boot checkpoint: {function}")
-        text = text.replace(original, f'\tpr_notice("OP13-DIAG: {function} begin\\n");\n'
+        text = text.replace(original, f'\tpr_err("OP13-DIAG: {function} begin\\n");\n'
                             + original
-                            + f'\n\tpr_notice("OP13-DIAG: {function} done\\n");')
+                            + f'\n\tpr_err("OP13-DIAG: {function} done\\n");')
     replacements = {
         '\tpr_notice("%s", linux_banner);':
             '\tpr_notice("%s", linux_banner);\n'
-            '\tpr_notice("OP13-DIAG: start_kernel, cgroup_init_early done\\n");',
-        "\tret = fn();": '\tpr_notice("OP13-DIAG: initcall %ps begin\\n", fn);\n'
+            '\tpr_err("OP13-DIAG: start_kernel, cgroup_init_early done\\n");',
+        "\tret = fn();": '\tpr_err("OP13-DIAG: initcall %ps begin\\n", fn);\n'
                          '\tret = fn();\n'
-                         '\tpr_notice("OP13-DIAG: initcall %ps ret=%d\\n", fn, ret);',
+                         '\tpr_err("OP13-DIAG: initcall %ps ret=%d\\n", fn, ret);',
         "\targv_init[0] = init_filename;":
-            '\tpr_notice("OP13-DIAG: exec init %s\\n", init_filename);\n'
+            '\tpr_err("OP13-DIAG: exec init %s\\n", init_filename);\n'
             '\targv_init[0] = init_filename;',
     }
     for original, replacement in replacements.items():
