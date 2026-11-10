@@ -122,6 +122,17 @@ def check_config(config, fragment):
                 errors.append(f"{key}: expected {value}, got {current.get(key, 'unset')}")
     if current.get("CONFIG_MODVERSIONS") != "y":
         errors.append("CONFIG_MODVERSIONS must remain enabled")
+    required = {
+        "CONFIG_MODULE_SIG": "y",
+        "CONFIG_MODULE_SIG_PROTECT": "y",
+        "CONFIG_SYSTEM_TRUSTED_KEYRING": "y",
+        "CONFIG_SYSTEM_TRUSTED_KEYS": '"certs/oneplus13-stock-module-cert.pem"',
+        "CONFIG_CFI_CLANG": "y",
+        "CONFIG_SECURITY_SELINUX": "y",
+    }
+    for key, value in required.items():
+        if current.get(key) != value:
+            errors.append(f"{key}: expected {value}, got {current.get(key, 'unset')}")
     if errors:
         raise ValueError("Docker configuration check failed:\n" + "\n".join(errors))
     print("All requested Docker options survive Kconfig dependency resolution")

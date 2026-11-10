@@ -15,6 +15,25 @@
 
 工作流为 `.github/workflows/oneplus13-docker.yml`，手动触发后产物位于 Actions 的 `OnePlus13-6.6.118-Docker-AnyKernel3` 工件内。下载工件后，刷入内部的 `AnyKernel3-*.zip`，不要刷 GitHub 外层的工件打包 ZIP。
 
+## 2026-11-10 启动专项复核
+
+**不要刷第 6 次构建的 `AnyKernel3-OnePlus13-6.6.118-Docker-6.zip`。** 它通过了结构和 CRC 检查，但遗漏了原厂模块签名信任。该 ZIP 的 SHA-256 为 `6007de20ab0dbb4298e531cd085efc5576cf890ba1923ce8d2605791fc8e08e2`；Actions run 为 `42771774380`，源提交为 `2474e4a24a7d2b3faa52ee5d1de56704bae8de67`。
+
+实机只读复核及下载包检查确认：
+
+- 手机仍为上述固件，当前槽位 `_a`，bootloader 为 unlocked/orange。
+- `boot_a` 为 96 MiB、header v4、无 ramdisk；原 kernel 为 36,866,560 字节，第 6 包为 38,005,248 字节，均为未压缩的 4 KiB ARM64 Image。本地使用包内同版本 magiskboot 重打包副本成功，未刷写分区。
+- 实际 root 为 KernelSU LKM，`init_boot_a` 的 ramdisk 含 `ksuinit`、`init.real`、`kernelsu.ko`。实机 ksuinit 包含内置 KernelSU 已存在则跳过加载的逻辑；对应固定版本源码也在加载前调用 `has_kernelsu()`。因此没有仅因 LKM 改为内置版就必然双重加载的证据，但这不等于实测启动通过。
+- 第 6 包内嵌配置为 `CONFIG_MODULE_SIG_PROTECT=y`、`CONFIG_SYSTEM_TRUSTED_KEYS=""`，内核仅包含构建时新生成的证书，不含原厂模块公钥。实机全部 96 个 system_dlkm 模块均已用从当前 boot 提取的原厂公钥完成 OpenSSL CMS 验签；其中 30 个模块导出保护符号，并且当前均已加载。新内核不信任其签名时会将其视为 vendor 模块，`verify_exported_symbols()` 会因保护导出而返回 `-EACCES`。这是 CRC 校验无法覆盖的真实拒载缺陷，可能导致启动异常或设备功能失效，不能仅凭它断言每次都会卡开机。
+- 从第 6 包实际 Image 提取 BTF，除原先 31 项门禁外，扩大比较了与实机同名的 10,569 个结构的大小及原字段偏移，发现 3 项差异：`hmbird_entity` 的原 `swap_cpu`/`reserve` 区域在源码中为 `kf_mask`，`hmbird_dispatch_q` 缺少原 `is_fatal_timeout` 字段；两者总大小及其余既有字段偏移相同，说明底层源码并非当前固件的逐字段一致版本，但不能仅凭字段名证明运行时冲突。`net_bridge` 因开启 BRIDGE_NETFILTER 从 1720 增至 2024 字节，是桥接内部结构的条件扩展，厂商模块若直接访问该私有布局仍有风险。这三项不属于原先 31 项检查的覆盖范围，也不代表已发现三处必然开机崩溃。证书修复并未消除这些待验证项。
+- 当前机器安装了 Android A / Ubuntu B 双启动模块，不能把切换 B 槽当作恢复 Android 的通用办法。恢复应使用本机对应槽位和固件的备份，并预先验证恢复入口。
+
+修复使用 `configs/oneplus13-stock-module-cert.pem`，仅包含从当前 boot 提取并验证的 **X.509 公共证书，不包含私钥**。DER SHA-256 为 `9be2c27bf7671d3935bfa2379bbd534d7ca3f46a31531b3db80f52aa051775d3`。通过 `CONFIG_SYSTEM_TRUSTED_KEYS` 将其加入系统可信密钥环，不关闭签名保护、不改成强制加载；打包前检查证书指纹、实际构建的可信证书表及实际 Image 均包含此证书。同时明确关闭 stock 未启用而源码默认新增的 ADIOS 模块选项。
+
+新包仍必须重新完成所有构建门禁；这些修复和静态核查不构成“保证开机”。CFS/cgroup 私有尾部分配、SYSVIPC/conntrack 保留空间及第三方 root 模块的运行时兼容性，仍需可恢复条件下的真实启动与日志验证。检查过程不会自动刷机、重启、切换槽位或禁用手机模块。
+
+证书修复已纳入重建流程；是否通过构建以对应提交的 Actions 结果为准，不等同于实机测试。旧第 6 包不会因为源码更新自动获得修复，不能继续使用它验证修复效果。
+
 ## 为什么不直接全开配置
 
 旧 `lvyc1234` 的 `2` 分支是 6.6.66 的多功能试验流程，并没有完整启用 Docker。它将追加 NET_NS 的命令注释掉，但不能据此判断最终内核是否禁用该功能；CGROUP_NS、DEVPTS_MULTIPLE_INSTANCES 已不是本版内核的有效选项，IPVLAN_L3S 则是由依赖自动决定的隐藏选项，不能靠追加名字确认功能生效。实机原内核的 NET_NS、VETH 已经开启，因此不能直接归因于 VETH。

@@ -84,8 +84,10 @@ jobs:
         run: |
           mkdir -p kernel/out
           cp configs/oneplus13-stock.config kernel/out/.config
+          cp configs/oneplus13-stock-module-cert.pem kernel/certs/
           kernel/scripts/kconfig/merge_config.sh -m -O kernel/out kernel/out/.config configs/oneplus13-docker.fragment
           kernel/scripts/config --file kernel/out/.config --set-str LOCALVERSION "-${KERNEL_RELEASE#6.6.118-}" -d LOCALVERSION_AUTO -d WERROR
+          kernel/scripts/config --file kernel/out/.config --set-str SYSTEM_TRUSTED_KEYS certs/oneplus13-stock-module-cert.pem -d MQ_IOSCHED_ADIOS
           python3 - <<'PY'
           from pathlib import Path
           symbols = set()
@@ -139,6 +141,15 @@ jobs:
           python3 scripts/check-op13-symbols.py check configs/oneplus13-stock-symbols.tsv kernel/out/vmlinux.symvers 2>&1 | tee artifacts/symbol-check.txt || status=1
           rm artifacts/docker.btf
           exit "$status"
+
+      - name: Reject missing stock module signing trust
+        run: |
+          cp configs/oneplus13-stock-module-cert.pem artifacts/
+          cp kernel/out/certs/x509_certificate_list artifacts/trusted-module-certificates.der
+          python3 scripts/check-op13-symbols.py trust \
+            configs/oneplus13-stock-module-cert.pem \
+            kernel/out/certs/x509_certificate_list \
+            kernel/out/arch/arm64/boot/Image 2>&1 | tee artifacts/module-trust-check.txt
 
       - name: Package device-checked AnyKernel3
         run: |
@@ -198,6 +209,7 @@ jobs:
           - 仅面向实机 PJZ110 / OP5D0DL1，固件 PJZ110_16.0.10.501(CN01)，6.6.118。
           - 保留 MODVERSIONS；核验 31 个内核结构的大小、字段偏移和原有 cgroup ID。
           - 同时核验本机 stock 模块导入的内核符号 CRC；不匹配即停止打包。
+          - 原厂 system_dlkm 模块公钥必须进入可信证书表及实际 Image；保留模块签名保护。
           - 启用 namespaces、cgroup v1/v2、CPU/PID/设备限制、overlayfs、bridge/NAT、IPv6、nftables/IPVS。
           - 未加入 SUSFS/KPM/风驰/第三方 IO/压缩补丁；不自动刷入手机。
           - ABI 检查不通过不会生成可刷 ZIP；检查通过也不等于已经通过实机启动测试。

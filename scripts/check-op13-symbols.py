@@ -1,5 +1,7 @@
 import argparse
+import hashlib
 from pathlib import Path
+import ssl
 import struct
 
 
@@ -86,6 +88,21 @@ def check(expected, symvers):
     print(f"All {len(baseline)} kernel symbol CRCs required by stock modules match")
 
 
+def check_trust(certificate, trusted_list, image):
+    public_certificate = certificate.read_text()
+    if "PRIVATE KEY" in public_certificate or public_certificate.count("BEGIN CERTIFICATE") != 1:
+        raise ValueError("Expected only the stock module public certificate")
+    der = ssl.PEM_cert_to_DER_cert(public_certificate)
+    fingerprint = hashlib.sha256(der).hexdigest()
+    if fingerprint != "9be2c27bf7671d3935bfa2379bbd534d7ca3f46a31531b3db80f52aa051775d3":
+        raise ValueError("Unexpected PJZ110 stock module certificate fingerprint")
+    if der not in trusted_list.read_bytes():
+        raise ValueError("Stock module certificate is missing from the built trusted certificate list")
+    if der not in image.read_bytes():
+        raise ValueError("Stock module certificate is missing from Image; do not flash")
+    print(f"Stock system_dlkm module public certificate is trusted and embedded: {fingerprint}")
+
+
 def main():
     parser = argparse.ArgumentParser()
     commands = parser.add_subparsers(dest="command", required=True)
@@ -95,11 +112,17 @@ def main():
     verify = commands.add_parser("check")
     verify.add_argument("baseline", type=Path)
     verify.add_argument("symvers", type=Path)
+    trust = commands.add_parser("trust")
+    trust.add_argument("certificate", type=Path)
+    trust.add_argument("trusted_list", type=Path)
+    trust.add_argument("image", type=Path)
     arguments = parser.parse_args()
     if arguments.command == "snapshot":
         snapshot(arguments.directories, arguments.output)
-    else:
+    elif arguments.command == "check":
         check(arguments.baseline, arguments.symvers)
+    else:
+        check_trust(arguments.certificate, arguments.trusted_list, arguments.image)
 
 
 if __name__ == "__main__":
