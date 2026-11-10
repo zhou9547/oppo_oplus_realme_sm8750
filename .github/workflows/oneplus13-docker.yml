@@ -1,11 +1,16 @@
 name: OnePlus 13 6.6.118 Native Docker
-run-name: OnePlus 13 Docker · KernelSU=${{ inputs.kernelsu }}
+run-name: OnePlus 13 Docker · KernelSU=${{ inputs.kernelsu }} · Diagnostics=${{ inputs.diagnostics }}
 
 on:
   workflow_dispatch:
     inputs:
       kernelsu:
         description: '内置原版 KernelSU v3.3.1；关闭后需自行保留其他 root 方案'
+        type: boolean
+        required: true
+        default: true
+      diagnostics:
+        description: '临时启动诊断日志；确认实机稳定后关闭以构建 Release'
         type: boolean
         required: true
         default: true
@@ -28,6 +33,7 @@ env:
   KBUILD_BUILD_HOST: abfarm
   CCACHE_DIR: /home/runner/.cache/ccache-op13-docker
   CCACHE_MAXSIZE: 3G
+  BUILD_FLAVOR: ${{ inputs.diagnostics && 'Debug' || 'Release' }}
 
 jobs:
   build:
@@ -46,6 +52,8 @@ jobs:
             bc bison flex build-essential libssl-dev libelf-dev libzstd-dev \
             dwarves ccache curl unzip zip zstd rsync
           mkdir -p artifacts toolchain
+          mkdir -p artifacts/diagnostic-kit
+          cp scripts/collect-op13-bootlogs.py docs/oneplus13-boot-debug.md artifacts/diagnostic-kit/
 
       - name: Restore compiler cache
         uses: actions/cache/restore@v4
@@ -66,8 +74,11 @@ jobs:
           rm clang.zip
           echo "$GITHUB_WORKSPACE/toolchain/bin" >> "$GITHUB_PATH"
           git -C kernel init
-          git -C kernel add include kernel net
+          git -C kernel add include kernel net init
           python3 scripts/prepare-op13-docker.py kernel limits.patch
+          if [[ '${{ inputs.diagnostics }}' == 'true' ]]; then
+            python3 scripts/prepare-op13-boot-debug.py apply kernel
+          fi
           if [[ '${{ inputs.kernelsu }}' == 'true' ]]; then
             git init KernelSU
             git -C KernelSU remote add origin https://github.com/tiann/KernelSU.git
@@ -78,7 +89,7 @@ jobs:
             printf '\nobj-$(CONFIG_KSU) += kernelsu/\n' >> kernel/drivers/Makefile
             printf '\nsource "drivers/kernelsu/Kconfig"\n' >> kernel/drivers/Kconfig
           fi
-          git -C kernel diff -- include kernel net > artifacts/kernel-source.patch
+          git -C kernel diff -- include kernel net init > artifacts/kernel-source.patch
 
       - name: Resolve and verify native Docker configuration
         run: |
@@ -150,6 +161,8 @@ jobs:
             configs/oneplus13-stock-module-cert.pem \
             kernel/out/certs/x509_certificate_list \
             kernel/out/arch/arm64/boot/Image 2>&1 | tee artifacts/module-trust-check.txt
+          python3 scripts/prepare-op13-boot-debug.py check \
+            kernel/out/arch/arm64/boot/Image "$BUILD_FLAVOR" 2>&1 | tee artifacts/boot-diagnostic-check.txt
 
       - name: Package device-checked AnyKernel3
         run: |
@@ -174,18 +187,18 @@ jobs:
           '''
           path.write_text(text.replace(anchor, guard + anchor))
           PY
-          printf 'source=%s\nksu=%s\nlimits=%s\nrelease=%s\n' \
-            "$KERNEL_COMMIT" "$KSU_COMMIT" "$LIMITS_COMMIT" "$KERNEL_RELEASE" > artifacts/provenance.txt
+          printf 'source=%s\nksu=%s\nlimits=%s\nrelease=%s\nbuilder=%s\nflavor=%s\n' \
+            "$KERNEL_COMMIT" "$KSU_COMMIT" "$LIMITS_COMMIT" "$KERNEL_RELEASE" "$GITHUB_SHA" "$BUILD_FLAVOR" > artifacts/provenance.txt
           cp artifacts/provenance.txt AnyKernel3/
           cd AnyKernel3
-          zip -qr "../artifacts/AnyKernel3-OnePlus13-6.6.118-Docker-${{ github.run_number }}.zip" .
+          zip -qr "../artifacts/AnyKernel3-OnePlus13-6.6.118-Docker-$BUILD_FLAVOR-${{ github.run_number }}.zip" .
           cd ../artifacts
           sha256sum AnyKernel3-*.zip > SHA256SUMS
 
       - name: Upload flashable kernel
         uses: actions/upload-artifact@v4
         with:
-          name: OnePlus13-6.6.118-Docker-AnyKernel3
+          name: OnePlus13-6.6.118-Docker-${{ env.BUILD_FLAVOR }}-AnyKernel3
           path: |
             artifacts/AnyKernel3-*.zip
             artifacts/SHA256SUMS
@@ -201,6 +214,15 @@ jobs:
           if-no-files-found: ignore
           retention-days: 14
 
+      - name: Upload computer-side boot log collection kit
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: OnePlus13-Boot-Diagnostic-Kit
+          path: artifacts/diagnostic-kit/
+          if-no-files-found: error
+          retention-days: 14
+
       - name: Build summary
         if: always()
         run: |
@@ -210,6 +232,8 @@ jobs:
           - 保留 MODVERSIONS；核验 31 个内核结构的大小、字段偏移和原有 cgroup ID。
           - 同时核验本机 stock 模块导入的内核符号 CRC；不匹配即停止打包。
           - 原厂 system_dlkm 模块公钥必须进入可信证书表及实际 Image；保留模块签名保护。
+          - diagnostics=true 为 Debug：临时启动检查点和 initcall 日志；false 为 Release：不注入额外日志。
+          - 随包提供电脑端只读 ADB 自动重连采集工具；USB 不保证能读取 adbd 启动之前的失败。
           - 启用 namespaces、cgroup v1/v2、CPU/PID/设备限制、overlayfs、bridge/NAT、IPv6、nftables/IPVS。
           - 未加入 SUSFS/KPM/风驰/第三方 IO/压缩补丁；不自动刷入手机。
           - ABI 检查不通过不会生成可刷 ZIP；检查通过也不等于已经通过实机启动测试。

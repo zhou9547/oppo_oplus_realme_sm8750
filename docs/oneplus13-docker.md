@@ -13,7 +13,7 @@
 
 `configs/oneplus13-stock.config` 来自 `/proc/config.gz`，`configs/oneplus13-stock-abi.json` 来自 `/sys/kernel/btf/vmlinux`。`configs/oneplus13-stock-symbols.tsv` 从本机 vendor_dlkm、system_dlkm 和当前槽位 vendor_boot ramdisk 内共 1068 份 stock 模块文件的 ELF 版本表提取 3831 个内核导入符号 CRC，并剔除模块之间提供的符号；计数包含分区间同名副本。vendor_boot 中的早期模块不能漏掉，否则会将它们提供的符号误认为内核缺少导出。这些提交文件只有编译选项、类型布局和校验值，不包含模块代码、分区镜像、密钥或用户数据。系统显示 Android 16 而 GKI 内核名称保留 android15 是本机的实际情况。
 
-工作流为 `.github/workflows/oneplus13-docker.yml`，手动触发后产物位于 Actions 的 `OnePlus13-6.6.118-Docker-AnyKernel3` 工件内。下载工件后，刷入内部的 `AnyKernel3-*.zip`，不要刷 GitHub 外层的工件打包 ZIP。
+工作流为 `.github/workflows/oneplus13-docker.yml`，目前默认 `diagnostics=true`，产物位于 Actions 的 `OnePlus13-6.6.118-Docker-Debug-AnyKernel3` 工件内；关闭后为 `Release`。下载工件后，刷入内部的 `AnyKernel3-*.zip`，不要刷 GitHub 外层的工件打包 ZIP。先按 [启动诊断与日志采集](oneplus13-boot-debug.md) 在电脑上备份并启动采集器；确认实机和 Docker 正常后再关闭临时日志重建，不提前发布已验证的无日志版。
 
 ## 2026-11-10 启动专项复核
 

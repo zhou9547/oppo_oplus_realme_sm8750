@@ -129,6 +129,12 @@ def check_config(config, fragment):
         "CONFIG_SYSTEM_TRUSTED_KEYS": '"certs/oneplus13-stock-module-cert.pem"',
         "CONFIG_CFI_CLANG": "y",
         "CONFIG_SECURITY_SELINUX": "y",
+        "CONFIG_PRINTK": "y",
+        "CONFIG_PRINTK_TIME": "y",
+        "CONFIG_PSTORE": "y",
+        "CONFIG_PSTORE_RAM": "y",
+        "CONFIG_PSTORE_CONSOLE": "y",
+        "CONFIG_PSTORE_PMSG": "y",
     }
     for key, value in required.items():
         if current.get(key) != value:
