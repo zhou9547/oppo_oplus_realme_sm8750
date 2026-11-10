@@ -39,33 +39,44 @@ def prepare(kernel, limits_patch):
     replace(definitions, "#undef SUBSYS\n", """#undef CGROUP_SUBSYS_KABI
 #undef SUBSYS
 
-#if !defined(CONFIG_CGROUP_PIDS) || !defined(CONFIG_CGROUP_DEVICE)
-#error OnePlus Docker KMI patch requires both PIDS and DEVICE controllers
+#if !defined(CONFIG_CGROUP_PIDS) || !defined(CONFIG_CGROUP_DEVICE) || !defined(CONFIG_CGROUP_NET_CLASSID)
+#error OnePlus Docker KMI patch requires PIDS, DEVICE and NET_CLASSID controllers
 #endif
 enum {
     pids_cgrp_id = CGROUP_SUBSYS_COUNT,
     devices_cgrp_id = CGROUP_SUBSYS_COUNT + 1,
+    net_cls_cgrp_id = CGROUP_SUBSYS_COUNT + 2,
 };
-#define CGROUP_SUBSYS_COUNT_ACTIVE (CGROUP_SUBSYS_COUNT + 2)
+#define CGROUP_SUBSYS_COUNT_ACTIVE (CGROUP_SUBSYS_COUNT + 3)
 """)
     subsystems = kernel / "include/linux/cgroup_subsys.h"
     replace(subsystems, "#if IS_ENABLED(CONFIG_CGROUP_DEVICE)\nSUBSYS(devices)\n#endif\n", "")
-    replace(subsystems, "SUBSYS(pids)\n#endif", "SUBSYS(pids)\nSUBSYS(devices)\n#endif")
+    replace(subsystems, "#if IS_ENABLED(CONFIG_CGROUP_NET_CLASSID)\nSUBSYS(net_cls)\n#endif\n", "")
+    replace(subsystems, "SUBSYS(pids)\n#endif", "SUBSYS(pids)\nSUBSYS(devices)\nSUBSYS(net_cls)\n#endif")
+    replace(definitions, "#ifdef CONFIG_CGROUP_NET_CLASSID\n\tu32\t\tclassid; /* v1 */\n#endif\n", "")
+    replace(definitions, "\tu16\t\tprioidx; /* v1 */\n#endif\n};", """	u16		prioidx; /* v1 */
+#endif
+#if defined(CONFIG_CGROUP_NET_CLASSID) && !defined(__GENKSYMS__)
+	u32		classid;
+#endif
+};""")
 
     public = kernel / "include/linux/cgroup.h"
     replace(public, "struct cgroup_subsys_state *css_set_pids(struct css_set *cset);",
             "struct cgroup_subsys_state *css_set_pids(struct css_set *cset);\n"
-            "struct cgroup_subsys_state *css_set_devices(struct css_set *cset);")
+            "struct cgroup_subsys_state *css_set_devices(struct css_set *cset);\n"
+            "struct cgroup_subsys_state *css_set_net_cls(struct css_set *cset);")
     replace(public, "\t\treturn css_set_pids(cset);", "\t\treturn css_set_pids(cset);\n"
-            "\tif (ssid == devices_cgrp_id)\n\t\treturn css_set_devices(cset);")
+            "\tif (ssid == devices_cgrp_id)\n\t\treturn css_set_devices(cset);\n"
+            "\tif (ssid == net_cls_cgrp_id)\n\t\treturn css_set_net_cls(cset);")
     internal = kernel / "kernel/cgroup/cgroup-internal.h"
     replace(internal, "#define CGROUP_PIDS_KABI_SIZE sizeof(struct cgroup_pids_kabi)",
-            "#define CGROUP_PIDS_KABI_SIZE (2 * sizeof(struct cgroup_pids_kabi))")
+            "#define CGROUP_PIDS_KABI_SIZE (3 * sizeof(struct cgroup_pids_kabi))")
     core = kernel / "kernel/cgroup/cgroup.c"
     replace(core, "static struct css_set_pids_kabi init_css_set_pids;",
-            "static struct css_set_pids_kabi init_css_set_pids[2];")
+            "static struct css_set_pids_kabi init_css_set_pids[3];")
     replace(core, "static struct cgroup_pids_kabi cgrp_dfl_root_pids;",
-            "static struct cgroup_pids_kabi cgrp_dfl_root_pids[2];")
+            "static struct cgroup_pids_kabi cgrp_dfl_root_pids[3];")
     replace(core, "return &init_css_set_pids;", "return init_css_set_pids;")
     replace(core, "return &cgrp_dfl_root_pids;", "return cgrp_dfl_root_pids;")
     replace(core, "EXPORT_SYMBOL_GPL(css_set_pids);", """EXPORT_SYMBOL_GPL(css_set_pids);
@@ -74,9 +85,15 @@ struct cgroup_subsys_state *css_set_devices(struct css_set *cset)
 {
 	return css_set_pids_storage(cset)[1].subsys;
 }
-EXPORT_SYMBOL_GPL(css_set_devices);""")
+EXPORT_SYMBOL_GPL(css_set_devices);
+
+struct cgroup_subsys_state *css_set_net_cls(struct css_set *cset)
+{
+	return css_set_pids_storage(cset)[2].subsys;
+}
+EXPORT_SYMBOL_GPL(css_set_net_cls);""")
     replace(core, "#define CSS_SET_PIDS_KABI_SIZE sizeof(struct css_set_pids_kabi)",
-            "#define CSS_SET_PIDS_KABI_SIZE (2 * sizeof(struct css_set_pids_kabi))")
+            "#define CSS_SET_PIDS_KABI_SIZE (3 * sizeof(struct css_set_pids_kabi))")
     for storage, member in (("css_set_pids_storage(cset)", "subsys"),
                             ("cgroup_pids_storage(cgrp)", "subsys"),
                             ("css_set_pids_storage(cset)", "e_cset_node"),
@@ -169,6 +186,14 @@ static int __net_init netfilter_net_init""")
 
 #if defined(CONFIG_NET_SCHED) || defined(CONFIG_NET_XGRESS)
 	__u16			tc_index;""")
+
+    netdevice = kernel / "include/linux/netdevice.h"
+    replace(netdevice, "#ifdef CONFIG_NET_L3_MASTER_DEV\n"
+            "\tconst struct l3mdev_ops\t*l3mdev_ops;\n#endif\n", "")
+    replace(netdevice, "\tstruct hlist_node\tindex_hlist;", """	struct hlist_node	index_hlist;
+#if defined(CONFIG_NET_L3_MASTER_DEV) && !defined(__GENKSYMS__)
+	const struct l3mdev_ops	*l3mdev_ops;
+#endif""")
 
     conntrack = kernel / "include/net/netfilter/nf_conntrack.h"
     replace(conntrack, "#ifdef CONFIG_NF_CONNTRACK_ZONES\n\tstruct nf_conntrack_zone zone;\n#endif\n", "")

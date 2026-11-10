@@ -1085,6 +1085,13 @@
     },
     "size": 136
   },
+  "sock_cgroup_data": {
+    "members": {
+      "cgroup": "0:0",
+      "prioidx": "64:0"
+    },
+    "size": 16
+  },
   "super_block": {
     "members": {
       "cleancache_poolid": "9088:0",
