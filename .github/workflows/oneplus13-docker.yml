@@ -69,8 +69,11 @@ jobs:
           git -C kernel add include kernel net
           python3 scripts/prepare-op13-docker.py kernel limits.patch
           if [[ '${{ inputs.kernelsu }}' == 'true' ]]; then
-            curl -fL --retry 3 "https://github.com/tiann/KernelSU/archive/$KSU_COMMIT.tar.gz" | tar -xz
-            mv "KernelSU-$KSU_COMMIT" KernelSU
+            git init KernelSU
+            git -C KernelSU remote add origin https://github.com/tiann/KernelSU.git
+            git -C KernelSU fetch origin "$KSU_COMMIT"
+            git -C KernelSU checkout --detach FETCH_HEAD
+            test "$(git -C KernelSU rev-parse HEAD)" = "$KSU_COMMIT"
             ln -s ../../KernelSU/kernel kernel/drivers/kernelsu
             printf '\nobj-$(CONFIG_KSU) += kernelsu/\n' >> kernel/drivers/Makefile
             printf '\nsource "drivers/kernelsu/Kconfig"\n' >> kernel/drivers/Kconfig

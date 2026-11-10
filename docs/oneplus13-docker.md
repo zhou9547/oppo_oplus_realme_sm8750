@@ -17,7 +17,7 @@
 
 ## 为什么不直接全开配置
 
-旧 `lvyc1234` 的 `2` 分支是 6.6.66 的多功能试验流程，并没有完整启用 Docker。它注释掉 NET_NS 等选项，且使用已不存在于 6.6 的 CGROUP_NS、DEVPTS_MULTIPLE_INSTANCES、IPVLAN_L3S 等符号，单纯追加这些名字不能启用功能。实机原内核的 NET_NS、VETH 已经开启，因此不能直接归因于 VETH。
+旧 `lvyc1234` 的 `2` 分支是 6.6.66 的多功能试验流程，并没有完整启用 Docker。它将追加 NET_NS 的命令注释掉，但不能据此判断最终内核是否禁用该功能；它还使用已不存在于 6.6 的 CGROUP_NS、DEVPTS_MULTIPLE_INSTANCES、IPVLAN_L3S 等符号，单纯追加这些名字不能启用功能。实机原内核的 NET_NS、VETH 已经开启，因此不能直接归因于 VETH。
 
 以下变化具有可从源码确认的厂商模块 ABI 风险，但旧机具体哪次不开机仍需对应 pstore/ramoops 日志才能定论：
 
